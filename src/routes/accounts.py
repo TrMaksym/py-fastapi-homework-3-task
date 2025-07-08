@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from uuid import uuid4
 
 from database.models.accounts import (
     UserModel,
-    UserGroupModel,
+    UserGroupModel,  # Додано імпорт
     ActivationTokenModel,
     PasswordResetTokenModel,
     RefreshTokenModel,
@@ -50,14 +51,21 @@ async def register_user(
         )
 
     try:
-        new_user = UserModel.create(
+        new_user = UserModel(
             email=user_data.email,
-            raw_password=user_data.password,
+            is_active=False,
             group_id=user_group.id,
         )
+        new_user.password = user_data.password
         db.add(new_user)
         await db.flush()
-        await ActivationTokenModel.create(db, user_id=new_user.id)
+
+        activation_token = ActivationTokenModel(
+            user_id=new_user.id,
+            token=str(uuid4()),
+            expires_at=datetime.now(timezone.utc) + timedelta(days=1),
+        )
+        db.add(activation_token)
         await db.commit()
     except Exception:
         await db.rollback()
@@ -127,7 +135,12 @@ async def request_password_reset(
         await db.execute(
             PasswordResetTokenModel.__table__.delete().where(PasswordResetTokenModel.user_id == user.id)
         )
-        await PasswordResetTokenModel.create(db, user_id=user.id)
+        reset_token = PasswordResetTokenModel(
+            user_id=user.id,
+            token=str(uuid4()),
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        )
+        db.add(reset_token)
         await db.commit()
 
     return {"message": "If you are registered, you will receive an email with instructions."}
@@ -156,7 +169,7 @@ async def complete_password_reset(
         )
     user = token_record.user
     try:
-        user.password = data.password
+        user.password = data.new_password
         await db.delete(token_record)
         await db.commit()
     except Exception:
@@ -188,7 +201,12 @@ async def login_user(
         )
     try:
         refresh_token = jwt_manager.create_refresh_token(subject=str(user.id))
-        await RefreshTokenModel.create(db, user_id=user.id, token=refresh_token, days_valid=7)
+        refresh_token_instance = RefreshTokenModel(
+            user_id=user.id,
+            token=refresh_token,
+            expires_at=datetime.now(timezone.utc) + timedelta(days=7),
+        )
+        db.add(refresh_token_instance)
         await db.commit()
     except Exception:
         await db.rollback()
