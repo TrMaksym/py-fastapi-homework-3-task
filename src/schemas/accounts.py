@@ -124,3 +124,49 @@ class UserRead(UserBase):
 
     class Config:
         orm_mode = True
+
+
+class UserRegistrationRequestSchema(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class UserRegistrationResponseSchema(BaseModel):
+    id: int
+    email: EmailStr
+
+
+class UserActivationRequestSchema(BaseModel):
+    token: str
+
+
+class PasswordResetRequestSchema(BaseModel):
+    email: EmailStr
+
+
+class PasswordResetCompleteRequestSchema(BaseModel):
+    token: str
+    new_password: str
+
+
+class UserLoginRequestSchema(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class UserLoginResponseSchema(BaseModel):
+    access_token: str
+    refresh_token: str
+
+
+class TokenRefreshRequestSchema(BaseModel):
+    refresh_token: str
+
+
+class TokenRefreshResponseSchema(BaseModel):
+    access_token: str
+    refresh_token: str
+
+
+class MessageResponseSchema(BaseModel):
+    message: str
