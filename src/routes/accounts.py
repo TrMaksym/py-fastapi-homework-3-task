@@ -32,14 +32,25 @@ async def register_user(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"A user with this email {user_data.email} already exists.",
         )
+
+    # Отримуємо групу користувача
+    result = await db.execute(
+        select(UserGroupModel).filter(UserGroupModel.name == UserGroupEnum.USER)
+    )
+    user_group = result.scalars().first()
+    if not user_group:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Default user group not found.",
+        )
+
     try:
-        hashed_password = hash_password(user_data.password)
         new_user = UserModel(
             email=user_data.email,
-            hashed_password=hashed_password,
             is_active=False,
-            group=UserGroupEnum.USER,
+            group_id=user_group.id,
         )
+        new_user.password = user_data.password
         db.add(new_user)
         await db.flush()
 
@@ -139,7 +150,7 @@ async def complete_password_reset(
         )
     user = token_record.user
     try:
-        user.hashed_password = hash_password(data.password)
+        user.password = data.password
         await db.delete(token_record)
         await db.commit()
     except Exception:
@@ -159,7 +170,7 @@ async def login_user(
     result = await db.execute(select(UserModel).filter(UserModel.email == login_data.email))
     user = result.scalars().first()
 
-    if not user or not verify_password(login_data.password, user.hashed_password):
+    if not user or not verify_password(login_data.password, user._hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password.",
