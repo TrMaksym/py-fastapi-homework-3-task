@@ -3,7 +3,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from datetime import datetime, timezone
 
-from database.models.accounts import UserModel, ActivationTokenModel, PasswordResetTokenModel, RefreshTokenModel
+from database.models.accounts import (
+    UserModel,
+    UserGroupModel,
+    ActivationTokenModel,
+    PasswordResetTokenModel,
+    RefreshTokenModel,
+)
 from schemas.accounts import (
     UserRegistrationRequestSchema,
     UserActivationRequestSchema,
@@ -33,7 +39,6 @@ async def register_user(
             detail=f"A user with this email {user_data.email} already exists.",
         )
 
-    # Отримуємо групу користувача
     result = await db.execute(
         select(UserGroupModel).filter(UserGroupModel.name == UserGroupEnum.USER)
     )
@@ -45,15 +50,13 @@ async def register_user(
         )
 
     try:
-        new_user = UserModel(
+        new_user = UserModel.create(
             email=user_data.email,
-            is_active=False,
+            raw_password=user_data.password,
             group_id=user_group.id,
         )
-        new_user.password = user_data.password
         db.add(new_user)
         await db.flush()
-
         await ActivationTokenModel.create(db, user_id=new_user.id)
         await db.commit()
     except Exception:
@@ -82,6 +85,9 @@ async def activate_user_account(
     token_record = result.scalars().first()
 
     if not token_record or token_record.is_expired():
+        if token_record:
+            await db.delete(token_record)
+            await db.commit()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid or expired activation token.",
@@ -170,7 +176,7 @@ async def login_user(
     result = await db.execute(select(UserModel).filter(UserModel.email == login_data.email))
     user = result.scalars().first()
 
-    if not user or not verify_password(login_data.password, user._hashed_password):
+    if not user or not user.verify_password(login_data.password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password.",
@@ -182,7 +188,7 @@ async def login_user(
         )
     try:
         refresh_token = jwt_manager.create_refresh_token(subject=str(user.id))
-        await RefreshTokenModel.create(db, user_id=user.id, token=refresh_token)
+        await RefreshTokenModel.create(db, user_id=user.id, token=refresh_token, days_valid=7)
         await db.commit()
     except Exception:
         await db.rollback()
@@ -218,7 +224,7 @@ async def refresh_access_token(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Refresh token not found.",
         )
-    result = await db.execute(select(UserModel).filter(UserModel.id == payload.get("sub")))
+    result = await db.execute(select(UserModel).filter(UserModel.id == int(payload.get("sub"))))
     user = result.scalars().first()
 
     if not user:

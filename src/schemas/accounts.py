@@ -146,7 +146,8 @@ class PasswordResetRequestSchema(BaseModel):
 
 class PasswordResetCompleteRequestSchema(BaseModel):
     token: str
-    new_password: str
+    password: str
+    email: str
 
 
 class UserLoginRequestSchema(BaseModel):
